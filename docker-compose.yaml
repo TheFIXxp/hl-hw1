@@ -1,0 +1,84 @@
+services:
+  app:
+    build: .
+    image: hl-app:local
+    pull_policy: build
+    environment:
+      POD_ID: ${POD_ID:-app-1}
+      DATACENTER: ${DATACENTER:-dc-1}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+  app-2:
+    image: hl-app:local
+    pull_policy: never
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      POD_ID: app-2
+      DATACENTER: dc-2
+    ports:
+      - "8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    volumes:
+      - ./monitoring/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
+  dashboard-generator:
+    build: ./dashboard
+    environment:
+      APP_URL: http://app:8080
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GRAFANA_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set GRAFANA_ADMIN_PASSWORD in .env}
+    depends_on:
+      app:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      grafana:
+        condition: service_healthy
+  loadgen:
+    build: ./loadgen
+    environment:
+      TARGET_URLS: http://app:8080,http://app-2:8080
+      START_RPS: ${LOAD_START_RPS:-1}
+      TARGET_RPS: ${LOAD_TARGET_RPS:-30}
+      RAMP_SECONDS: ${LOAD_RAMP_SECONDS:-180}
+      RUN_SECONDS: ${LOAD_RUN_SECONDS:-0}
+    depends_on:
+      app:
+        condition: service_healthy
+      app-2:
+        condition: service_healthy
+      dashboard-generator:
+        condition: service_completed_successfully
+    stop_grace_period: 10s

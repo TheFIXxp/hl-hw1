@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: hl
+
+management:
+  endpoints:
+    web:
+      base-path: /
+      discovery:
+        enabled: false
+      path-mapping:
+        prometheus: metrics
+      exposure:
+        include: prometheus
+  metrics:
+    tags:
+      pod_id: ${POD_ID:local}
+      datacenter: ${DATACENTER:local}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      minimum-expected-value:
+        http.server.requests: 100us
+      maximum-expected-value:
+        http.server.requests: 10s
